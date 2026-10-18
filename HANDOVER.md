@@ -1,7 +1,7 @@
 # HANDOVER -- rust-yahboom-mcp
 
 **Last updated:** 2026-10-18
-**Phase:** local gates green. Visual diff and installer are still open.
+**Phase:** stills captured. Installer script is in `installer/installer.nsi`. Layout parity is still open.
 
 ## What was done
 
@@ -9,7 +9,7 @@ Legacy frames are in `docs/parity/legacy/`. The Rust workspace builds. `status -
 
 ## Next
 
-Open `yahboom-app`, screenshot every page into `docs/parity/rust/`, and fix the layout against the legacy frames. Then lock kittest goldens. Installer and a GitHub release are separate and were not published.
+Bring the Rust pages closer to the legacy frames in `docs/parity/legacy/`. The stills in `docs/parity/rust/` show the gap: nav matches, page bodies are still the short card column.
 
 ## Deliberately not done
 

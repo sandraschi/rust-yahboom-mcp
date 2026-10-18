@@ -10,3 +10,5 @@ cargo run -p yahboom-app -- --smoke
 ```
 
 Actuator operations refuse to run unless `--confirm` is set. `stop` and `stop_all` are the exceptions. If the gateway is down, read commands return `mode: demo` instead of crashing.
+
+Release installer (current user, no UAC): `just installer`, then `target/release/bundle/Boomy-Control-Rust-0.1.0-setup.exe`. Page stills live in `docs/parity/rust/`.

@@ -1,6 +1,12 @@
 # UI parity
 
-**Status:** legacy frames captured. Rust window not diffed yet.
+**Status:** legacy frames and Rust stills are both on disk. Layout is not near-identical yet.
+
+Rust frames are `docs/parity/rust/*.png` (30 pages, 1280x860, dark theme, kittest wgpu). Same slugs as `docs/parity/legacy/` plus `crossconnect.png` and `raw.png`.
+
+What matches: page names, group order, indigo selection, dark ground, readable body text.
+
+What does not: the legacy dashboard is a stack-health board with bring-up copy and shortcut buttons. The Rust dashboard is a short status column plus the PTZ, headlight, and speak controls. Card pages list the same preset titles. They are not the webapp's dense panels.
 
 ## Exceptions already known
 
