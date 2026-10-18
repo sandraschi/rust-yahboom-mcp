@@ -1,0 +1,24 @@
+[package]
+name = "yahboom-app"
+version = "0.1.0"
+edition = "2021"
+description = "L3 egui desktop for Boomy Control"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "yahboom-app"
+path = "src/main.rs"
+
+[dependencies]
+yahboom-core = { path = "../yahboom-core" }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+eframe = { workspace = true }
+keyring = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+egui_kittest = { workspace = true, features = ["snapshot", "wgpu"] }
+
+[lints]
+workspace = true
