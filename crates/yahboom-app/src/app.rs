@@ -10,11 +10,9 @@ use serde_json::Value;
 use std::sync::{mpsc, Arc};
 use yahboom_core::{dispatch, Command};
 
-const BG: Color32 = Color32::from_rgb(10, 10, 12);
-const PANEL: Color32 = Color32::from_rgb(18, 18, 22);
-const ACCENT: Color32 = Color32::from_rgb(99, 102, 241);
-const DANGER: Color32 = Color32::from_rgb(220, 38, 38);
-const MUTED: Color32 = Color32::from_rgb(148, 163, 184);
+const ACCENT: Color32 = Color32::from_rgb(79, 70, 229);
+const DANGER: Color32 = Color32::from_rgb(185, 28, 28);
+const OK: Color32 = Color32::from_rgb(21, 128, 61);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LoadState {
@@ -90,6 +88,42 @@ impl Page {
             Self::Help => "Help",
             Self::Crossconnect => "Crossconnect",
             Self::Raw => "Raw JSON",
+        }
+    }
+
+    #[cfg(test)]
+    fn slug(self) -> &'static str {
+        match self {
+            Self::Dashboard => "dashboard",
+            Self::MissionControl => "mission-control",
+            Self::Status => "status",
+            Self::Analytics => "analytics",
+            Self::Visualization => "viz",
+            Self::Map => "map",
+            Self::Slam => "slam",
+            Self::LidarMap => "lidar-map",
+            Self::Movement => "movement",
+            Self::Sensors => "sensors",
+            Self::Peripherals => "peripherals",
+            Self::Audio => "audio",
+            Self::Voice => "voice",
+            Self::VoiceUpgrade => "voice-upgrade",
+            Self::LidarAddon => "lidar-addon",
+            Self::Companion => "chat",
+            Self::Missions => "missions",
+            Self::Llm => "llm",
+            Self::Skills => "skills",
+            Self::Workflows => "workflows",
+            Self::Diagnostics => "diagnostics",
+            Self::Inbox => "inbox",
+            Self::Logs => "logs",
+            Self::Tools => "tools",
+            Self::Apps => "apps",
+            Self::Settings => "settings",
+            Self::Onboarding => "onboarding",
+            Self::Help => "help",
+            Self::Crossconnect => "crossconnect",
+            Self::Raw => "raw",
         }
     }
 }
@@ -355,6 +389,10 @@ pub struct YahboomApp {
 impl YahboomApp {
     pub fn new(cc: &eframe::CreationContext<'_>, rt: Arc<tokio::runtime::Runtime>) -> Self {
         apply_theme(&cc.egui_ctx, false);
+        Self::offline(rt)
+    }
+
+    fn offline(rt: Arc<tokio::runtime::Runtime>) -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
             page: Page::Dashboard,
@@ -409,6 +447,13 @@ impl YahboomApp {
 
 impl eframe::App for YahboomApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.draw(ui);
+    }
+}
+
+impl YahboomApp {
+    fn draw(&mut self, ui: &mut egui::Ui) {
+        apply_theme(ui.ctx(), self.light);
         let ctx = ui.ctx().clone();
         let zoom_delta = ctx.input(|input| input.zoom_delta());
         if (zoom_delta - 1.0).abs() > 0.001 {
@@ -430,27 +475,24 @@ impl eframe::App for YahboomApp {
         }
         egui::Panel::top("top").show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("BOOMY SYSTEM CORE").color(MUTED));
+                ui.label(RichText::new("BOOMY SYSTEM CORE").color(secondary(ui)));
                 let link = if self.link_up() {
                     "LINK ACTIVE"
                 } else {
                     "LINK LOST"
                 };
                 let color = if self.link_up() {
-                    Color32::from_rgb(34, 197, 94)
+                    status_ok(ui)
                 } else {
-                    DANGER
+                    status_bad(ui)
                 };
-                ui.label(RichText::new(link).color(color));
+                ui.label(RichText::new(link).strong().color(color));
+                theme_toggle_button(ui, &mut self.light);
                 if ui
-                    .button(if self.light { "Dark" } else { "Light" })
-                    .clicked()
-                {
-                    self.light = !self.light;
-                    apply_theme(&ctx, self.light);
-                }
-                if ui
-                    .button(RichText::new("EMERGENCY STOP").color(Color32::WHITE))
+                    .add(
+                        egui::Button::new(RichText::new("EMERGENCY STOP").color(Color32::WHITE))
+                            .fill(DANGER),
+                    )
                     .clicked()
                 {
                     self.spawn("stop_all", tool("stop_all"));
@@ -458,22 +500,27 @@ impl eframe::App for YahboomApp {
             });
         });
         egui::Panel::left("nav").default_size(230.0).show(ui, |ui| {
+            ui.label(RichText::new("BOOMY CONTROL").strong().color(primary(ui)));
             ui.label(
-                RichText::new("BOOMY CONTROL")
-                    .strong()
-                    .color(Color32::WHITE),
+                RichText::new("INDUSTRIAL CONTROL")
+                    .size(13.0)
+                    .color(secondary(ui)),
             );
-            ui.label(RichText::new("INDUSTRIAL CONTROL").size(10.0).color(MUTED));
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for group in GROUPS {
                     ui.add_space(8.0);
-                    ui.label(RichText::new(group.title).size(11.0).color(MUTED));
+                    ui.label(
+                        RichText::new(group.title)
+                            .size(13.0)
+                            .strong()
+                            .color(secondary(ui)),
+                    );
                     for page in group.pages {
                         let selected = *page == self.page;
                         let text = if selected {
-                            RichText::new(page.label()).color(Color32::WHITE)
+                            RichText::new(page.label()).strong().color(primary(ui))
                         } else {
-                            RichText::new(page.label()).color(MUTED)
+                            RichText::new(page.label()).color(secondary(ui))
                         };
                         if ui.selectable_label(selected, text).clicked() {
                             self.page = *page;
@@ -494,9 +541,9 @@ impl eframe::App for YahboomApp {
 impl YahboomApp {
     fn view_page(&mut self, ui: &mut egui::Ui) {
         ui.heading(self.page.label());
-        ui.label(RichText::new(format!("mode {}", self.mode())).color(MUTED));
+        ui.label(RichText::new(format!("mode {}", self.mode())).color(secondary(ui)));
         if !self.note.is_empty() {
-            ui.label(RichText::new(&self.note).color(ACCENT));
+            ui.label(RichText::new(&self.note).color(primary(ui)));
         }
         match self.page {
             Page::Dashboard => self.view_dashboard(ui),
@@ -543,7 +590,11 @@ impl YahboomApp {
         if self.link_up() {
             ui.label("Robot link is up.");
         } else {
-            ui.label(RichText::new("No connection to robot").color(DANGER));
+            ui.label(
+                RichText::new("No connection to robot")
+                    .strong()
+                    .color(status_bad(ui)),
+            );
             ui.label(format!(
                 "Target {ip}. ROS disconnected until the Pi answers."
             ));
@@ -573,7 +624,7 @@ impl YahboomApp {
     }
 
     fn view_cards(&mut self, ui: &mut egui::Ui, heading: &str) {
-        ui.label(RichText::new(heading).color(MUTED));
+        ui.label(RichText::new(heading).strong().color(secondary(ui)));
         let cards = cards_for(self.page);
         if cards.is_empty() {
             ui.label(
@@ -594,7 +645,7 @@ impl YahboomApp {
         for card in cards {
             ui.group(|ui| {
                 ui.label(RichText::new(card.title).strong());
-                ui.label(RichText::new(card.body).color(MUTED));
+                ui.label(RichText::new(card.body).color(secondary(ui)));
                 if let Some(operation) = card.operation {
                     let safe = !yahboom_core::requires_confirm(operation);
                     let enabled = linked || safe;
@@ -667,18 +718,156 @@ fn path_for(page: Page) -> &'static str {
     }
 }
 
-fn apply_theme(ctx: &egui::Context, light: bool) {
-    let mut visuals = if light {
-        egui::Visuals::light()
+fn status_ok(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(74, 222, 128)
     } else {
-        egui::Visuals::dark()
-    };
-    if !light {
-        visuals.panel_fill = PANEL;
-        visuals.window_fill = BG;
-        visuals.extreme_bg_color = BG;
+        OK
     }
-    ctx.set_visuals(visuals);
+}
+
+fn status_bad(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(252, 165, 165)
+    } else {
+        DANGER
+    }
+}
+
+fn primary(ui: &egui::Ui) -> Color32 {
+    ui.visuals().text_color()
+}
+
+fn secondary(ui: &egui::Ui) -> Color32 {
+    ui.visuals().weak_text_color()
+}
+
+fn harsh_visuals() -> egui::Visuals {
+    let mut visuals = egui::Visuals::dark();
+    visuals.override_text_color = Some(Color32::from_rgb(245, 247, 250));
+    visuals.weak_text_color = Some(Color32::from_rgb(186, 194, 206));
+    visuals.window_fill = Color32::from_rgb(10, 13, 18);
+    visuals.panel_fill = Color32::from_rgb(16, 26, 46);
+    visuals.extreme_bg_color = Color32::from_rgb(10, 13, 18);
+    visuals.code_bg_color = Color32::from_rgb(8, 12, 22);
+    visuals.faint_bg_color = Color32::from_rgb(22, 34, 58);
+    visuals.warn_fg_color = Color32::from_rgb(255, 200, 120);
+    visuals.error_fg_color = Color32::from_rgb(252, 165, 165);
+    visuals.widgets.noninteractive.fg_stroke =
+        egui::Stroke::new(1.0, Color32::from_rgb(186, 194, 206));
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(245, 247, 250));
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, Color32::WHITE);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, Color32::WHITE);
+    visuals.selection.bg_fill = Color32::from_rgb(49, 46, 129);
+    visuals.selection.stroke = egui::Stroke::new(1.0, Color32::WHITE);
+    visuals.hyperlink_color = Color32::from_rgb(165, 180, 252);
+    visuals.window_corner_radius = egui::CornerRadius::same(12);
+    visuals.menu_corner_radius = egui::CornerRadius::same(8);
+    visuals.widgets.noninteractive.bg_stroke =
+        egui::Stroke::new(1.0, Color32::from_rgb(38, 52, 82));
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(51, 65, 85));
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.5, ACCENT);
+    visuals
+}
+
+fn crisp_light_visuals() -> egui::Visuals {
+    let ink = Color32::from_rgb(15, 23, 42);
+    let secondary = Color32::from_rgb(51, 65, 85);
+    let mut visuals = egui::Visuals::light();
+    visuals.override_text_color = Some(ink);
+    visuals.weak_text_color = Some(secondary);
+    visuals.window_fill = Color32::WHITE;
+    visuals.panel_fill = Color32::from_rgb(248, 250, 252);
+    visuals.extreme_bg_color = Color32::WHITE;
+    visuals.code_bg_color = Color32::from_rgb(241, 245, 249);
+    visuals.faint_bg_color = Color32::from_rgb(241, 245, 249);
+    visuals.warn_fg_color = Color32::from_rgb(146, 64, 14);
+    visuals.error_fg_color = DANGER;
+    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, secondary);
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ink);
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, ink);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, ink);
+    visuals.widgets.inactive.bg_fill = Color32::WHITE;
+    visuals.widgets.hovered.bg_fill = Color32::from_rgb(238, 242, 255);
+    visuals.widgets.active.bg_fill = Color32::from_rgb(224, 231, 255);
+    visuals.selection.bg_fill = Color32::from_rgb(224, 231, 255);
+    visuals.selection.stroke = egui::Stroke::new(1.0, ink);
+    visuals.hyperlink_color = ACCENT;
+    visuals.window_corner_radius = egui::CornerRadius::same(12);
+    visuals.menu_corner_radius = egui::CornerRadius::same(8);
+    visuals.widgets.noninteractive.bg_stroke =
+        egui::Stroke::new(1.0, Color32::from_rgb(203, 213, 225));
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, Color32::from_rgb(148, 163, 184));
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.5, ACCENT);
+    visuals
+}
+
+fn apply_theme(ctx: &egui::Context, light: bool) {
+    ctx.set_visuals(if light {
+        crisp_light_visuals()
+    } else {
+        harsh_visuals()
+    });
+    let theme = if light {
+        egui::Theme::Light
+    } else {
+        egui::Theme::Dark
+    };
+    ctx.style_mut_of(theme, |style| {
+        use egui::TextStyle::{Body, Button, Heading, Monospace, Small};
+        for (text_style, size) in [
+            (Body, 16.0),
+            (Button, 16.0),
+            (Heading, 23.0),
+            (Monospace, 14.0),
+            (Small, 13.0),
+        ] {
+            if let Some(font) = style.text_styles.get_mut(&text_style) {
+                font.size = size;
+            }
+        }
+        style.spacing.item_spacing = egui::vec2(10.0, 8.0);
+        style.spacing.button_padding = egui::vec2(10.0, 6.0);
+    });
+}
+
+fn theme_toggle_button(ui: &mut egui::Ui, light: &mut bool) {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        let visuals = ui.style().interact(&response);
+        ui.painter().rect(
+            rect,
+            egui::CornerRadius::same(6),
+            visuals.bg_fill,
+            visuals.bg_stroke,
+            egui::StrokeKind::Inside,
+        );
+        let center = rect.center();
+        let painter = ui.painter();
+        if *light {
+            let moon = Color32::from_rgb(30, 41, 59);
+            painter.circle_filled(center, 6.5, moon);
+            painter.circle_filled(center + egui::vec2(3.0, -2.2), 5.5, visuals.bg_fill);
+        } else {
+            let sun = Color32::from_rgb(217, 119, 6);
+            painter.circle_filled(center, 4.5, sun);
+            for i in 0..8 {
+                let angle = (i as f32) * std::f32::consts::TAU / 8.0;
+                let dir = egui::vec2(angle.cos(), angle.sin());
+                painter.line_segment(
+                    [center + dir * 6.5, center + dir * 9.2],
+                    egui::Stroke::new(1.6, sun),
+                );
+            }
+        }
+    }
+    if response
+        .on_hover_text("Toggle light / dark theme")
+        .clicked()
+    {
+        *light = !*light;
+        apply_theme(ui.ctx(), *light);
+    }
 }
 
 pub fn smoke() -> eframe::Result<()> {
@@ -734,5 +923,48 @@ mod tests {
         assert_eq!(legacy_page_count(), 28);
         assert_eq!(Page::Dashboard.label(), "Dashboard");
         assert_eq!(Page::Movement.label(), "Movement");
+        assert_eq!(Page::Companion.slug(), "chat");
+        assert_eq!(Page::Visualization.slug(), "viz");
+    }
+
+    #[test]
+    #[ignore = "writes docs/parity/rust; cargo test -p yahboom-app -- --ignored write_page_stills"]
+    fn write_page_stills() {
+        let runtime = tokio::runtime::Runtime::new().unwrap_or_else(|err| {
+            eprintln!("runtime init failed: {err}");
+            std::process::exit(1);
+        });
+        let app = YahboomApp::offline(std::sync::Arc::new(runtime));
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 860.0))
+            .with_render_cursor(false)
+            .with_accessibility_check(false)
+            .wgpu()
+            .build_ui_state(|ui, app: &mut YahboomApp| app.draw(ui), app);
+        apply_theme(&harness.ctx, false);
+        harness.run();
+        let dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/parity/rust");
+        let created = std::fs::create_dir_all(&dir);
+        assert!(created.is_ok(), "create stills dir");
+        let pages: Vec<Page> = GROUPS
+            .iter()
+            .flat_map(|group| group.pages.iter().copied())
+            .collect();
+        assert_eq!(pages.len(), 30);
+        for page in pages {
+            harness.state_mut().page = page;
+            harness.state_mut().pending = None;
+            apply_theme(&harness.ctx, false);
+            harness.run();
+            let rendered = harness.render();
+            assert!(rendered.is_ok(), "render {}", page.slug());
+            let Ok(image) = rendered else {
+                return;
+            };
+            let path = dir.join(format!("{}.png", page.slug()));
+            let saved = image.save(&path);
+            assert!(saved.is_ok(), "save {}", path.display());
+        }
     }
 }
