@@ -363,6 +363,27 @@ fn cards_for(page: Page) -> &'static [Card] {
     }
 }
 
+#[derive(Clone)]
+struct Pending {
+    label: &'static str,
+    operation: &'static str,
+    p1: Option<String>,
+    p2: Option<String>,
+    p3: Option<String>,
+}
+
+impl Pending {
+    fn bare(label: &'static str, operation: &'static str) -> Self {
+        Self {
+            label,
+            operation,
+            p1: None,
+            p2: None,
+            p3: None,
+        }
+    }
+}
+
 struct Job {
     page_hint: String,
     value: Value,
@@ -374,7 +395,9 @@ pub struct YahboomApp {
     health: Option<Value>,
     last: Option<Value>,
     note: String,
-    pending: Option<(&'static str, &'static str)>,
+    pending: Option<Pending>,
+    headlight: bool,
+    wasd: bool,
     provider: String,
     base_url: String,
     model: String,
@@ -401,6 +424,8 @@ impl YahboomApp {
             last: None,
             note: String::new(),
             pending: None,
+            headlight: false,
+            wasd: false,
             provider: "ollama".to_string(),
             base_url: "http://127.0.0.1:11434/v1".to_string(),
             model: "gemma4:12b".to_string(),
@@ -540,8 +565,10 @@ impl YahboomApp {
 
 impl YahboomApp {
     fn view_page(&mut self, ui: &mut egui::Ui) {
-        ui.heading(self.page.label());
-        ui.label(RichText::new(format!("mode {}", self.mode())).color(secondary(ui)));
+        if self.page != Page::Dashboard {
+            ui.heading(self.page.label());
+            ui.label(RichText::new(format!("mode {}", self.mode())).color(secondary(ui)));
+        }
         if !self.note.is_empty() {
             ui.label(RichText::new(&self.note).color(primary(ui)));
         }
@@ -570,57 +597,323 @@ impl YahboomApp {
             }
             _ => self.view_cards(ui, self.page.label()),
         }
-        if let Some(pending) = self.pending {
+        if let Some(pending) = self.pending.clone() {
             ui.separator();
-            ui.label(format!("Confirm {} ({})", pending.0, pending.1));
+            ui.label(format!("Confirm {} ({})", pending.label, pending.operation));
             if ui.button("Confirm drive").clicked() {
-                self.spawn(pending.0, tool(pending.1));
+                let cmd = yahboom_core::tool_command(
+                    pending.operation,
+                    pending.p1,
+                    pending.p2,
+                    pending.p3,
+                    true,
+                )
+                .unwrap_or(Command::Status);
+                self.spawn(pending.label, cmd);
                 self.pending = None;
             }
         }
     }
 
+    fn arm(&mut self, label: &'static str, operation: &'static str) {
+        self.pending = Some(Pending::bare(label, operation));
+    }
+
+    fn arm_params(
+        &mut self,
+        label: &'static str,
+        operation: &'static str,
+        p1: Option<String>,
+        p2: Option<String>,
+        p3: Option<String>,
+    ) {
+        self.pending = Some(Pending {
+            label,
+            operation,
+            p1,
+            p2,
+            p3,
+        });
+    }
+
     fn view_dashboard(&mut self, ui: &mut egui::Ui) {
-        let ip = self
-            .health
-            .as_ref()
-            .and_then(|v| v.get("robot_ip"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("192.168.1.11");
-        if self.link_up() {
-            ui.label("Robot link is up.");
+        let snap = dash_snapshot(self.health.as_ref(), self.link_up());
+        let dark = ui.visuals().dark_mode;
+        let (fill, stroke, ink) = if snap.connected {
+            (
+                Color32::from_rgb(6, 48, 32),
+                Color32::from_rgb(52, 211, 153),
+                Color32::from_rgb(209, 250, 229),
+            )
+        } else if dark {
+            (
+                Color32::from_rgb(69, 10, 10),
+                Color32::from_rgb(248, 113, 113),
+                Color32::from_rgb(254, 226, 226),
+            )
         } else {
+            (
+                Color32::from_rgb(254, 226, 226),
+                Color32::from_rgb(185, 28, 28),
+                Color32::from_rgb(127, 29, 29),
+            )
+        };
+        let mut banner = egui::Frame::group(ui.style());
+        banner.fill = fill;
+        banner.stroke = egui::Stroke::new(1.0, stroke);
+        banner.inner_margin = egui::Margin::same(12);
+        banner.show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new(if snap.connected {
+                            "Robot connected"
+                        } else {
+                            "No connection to robot"
+                        })
+                        .strong()
+                        .size(18.0)
+                        .color(ink),
+                    );
+                    ui.label(
+                        RichText::new(format!(
+                            "Target {}  |  ROS {}  |  SSH {}  |  Video {}  |  cmd_vel {}",
+                            snap.ip, snap.ros, snap.ssh, snap.video, snap.cmd_vel
+                        ))
+                        .size(13.0)
+                        .color(ink),
+                    );
+                });
+                ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
+                    if ui.button("Server logs").clicked() {
+                        self.page = Page::Logs;
+                    }
+                    if ui.button("Diagnostics").clicked() {
+                        self.page = Page::Diagnostics;
+                    }
+                    if ui.button("Help").clicked() {
+                        self.page = Page::Help;
+                    }
+                });
+            });
+            if !snap.connected && ui.button("New robot? Start hardware bring-up").clicked() {
+                self.page = Page::Onboarding;
+            }
+            ui.add_space(6.0);
             ui.label(
-                RichText::new("No connection to robot")
-                    .strong()
-                    .color(status_bad(ui)),
+                RichText::new("STACK HEALTH  |  see Status for details")
+                    .size(13.0)
+                    .color(ink),
             );
-            ui.label(format!(
-                "Target {ip}. ROS disconnected until the Pi answers."
-            ));
-        }
-        ui.add_space(8.0);
-        ui.label(RichText::new("CONTROL CENTER").strong());
-        ui.label("SOTA | ROS 2 HUMBLE | VIENNA_ALSERGRUND");
-        if ui.button("Reconnect").clicked() {
-            self.load = LoadState::Unloaded;
-        }
-        ui.separator();
-        ui.label("Camera PTZ");
-        if ui.button("Center").clicked() {
-            self.pending = Some(("Center", "camera_reset"));
-        }
-        ui.label("GPIO headlight");
-        ui.label("Tapo Audio");
-        ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut self.speak);
-            if ui.button("Speak").clicked() {
-                self.pending = Some(("Speak", "say"));
+            ui.horizontal_wrapped(|ui| {
+                for layer in &snap.layers {
+                    let mark = if layer.ok { "OK" } else { "X" };
+                    let color = if layer.ok { status_ok(ui) } else { status_bad(ui) };
+                    ui.label(RichText::new(format!("{mark} {}", layer.title)).color(color));
+                }
+            });
+            if !snap.connected {
+                ui.add_space(6.0);
+                ui.label(RichText::new("Hey - start with the robot and the link. Turn the Raspbot on and wait for it to boot. Join the Raspbot Wi-Fi access point on this PC, or connect an Ethernet cable between Goliath and the Pi. Until that path exists, Docker, systemd, and Yahboom bringup on the Pi are not in play for this dashboard. After power and network are good, use Reconnect or Diagnostics Hard Reset if ROS still does not attach.").color(ink));
+                ui.label(RichText::new("This PC can reach the configured robot address. Both ROS (rosbridge) and SSH are down. The gateway on Goliath is running. The Pi is not participating.").color(ink));
+                ui.label(RichText::new("Robot off or booting. Raspbot power / SD / wait for AP or Ethernet to come up.").color(ink));
+                ui.label(RichText::new("Goliath not on the robot network. Join Wi-Fi to the Raspbot access point and no Ethernet cable is plugged between Goliath and the Raspberry Pi.").color(ink));
+                ui.label(RichText::new("Wrong YAHBOOM_IP in webapp/start.ps1 (or env). It must match the Pi on the link you use (AP vs home LAN vs Ethernet).").color(ink));
             }
         });
-        ui.label("Keyboard: WASD drives when the link is up");
-        ui.label("Light Control: Patrol car pattern, Danger red, Safe green");
-        ui.label("Voice & Media Hub");
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("CONTROL CENTER").strong().size(22.0));
+            ui.label(
+                RichText::new("SOTA v1.20  |  ROS 2 HUMBLE  |  VIENNA_ALSERGRUND")
+                    .color(secondary(ui)),
+            );
+            let bridge = if snap.connected {
+                "ROS BRIDGE LIVE"
+            } else {
+                "ROS BRIDGE OFFLINE"
+            };
+            ui.label(RichText::new(bridge).strong().color(if snap.connected {
+                status_ok(ui)
+            } else {
+                status_bad(ui)
+            }));
+            if ui.button("Reconnect").clicked() {
+                self.load = LoadState::Unloaded;
+            }
+        });
+        ui.add_space(8.0);
+        ui.columns(3, |cols| {
+            kpi(
+                cols,
+                0,
+                "SERVER",
+                "yahboom-mcp",
+                &format!("v{}", snap.version),
+            );
+            kpi(cols, 1, "ROBOT", &snap.ip, &format!("ROS {}", snap.ros));
+            kpi(
+                cols,
+                2,
+                "TOOLS",
+                &snap.layers.len().to_string(),
+                "Stack layers",
+            );
+        });
+        ui.add_space(8.0);
+        let width = ui.available_width();
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 200.0), egui::Sense::hover());
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(16),
+            Color32::from_rgb(8, 10, 16),
+        );
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Visual stream offline. Connect the ROS bridge first.",
+            egui::FontId::proportional(16.0),
+            secondary(ui),
+        );
+        ui.painter().text(
+            rect.left_top() + egui::vec2(16.0, 16.0),
+            egui::Align2::LEFT_TOP,
+            "LIVE FEED",
+            egui::FontId::proportional(13.0),
+            primary(ui),
+        );
+        ui.painter().text(
+            rect.left_bottom() + egui::vec2(16.0, -28.0),
+            egui::Align2::LEFT_BOTTOM,
+            format!("Heading {:.1} deg", snap.heading),
+            egui::FontId::proportional(16.0),
+            primary(ui),
+        );
+        ui.add_space(8.0);
+        ui.columns(4, |cols| {
+            kpi(
+                &mut cols[0..1],
+                0,
+                "CORE ENERGY",
+                &snap.battery,
+                &snap.voltage,
+            );
+            kpi(
+                &mut cols[1..2],
+                0,
+                "TILT / TRIM",
+                &format!("{:.1} deg", snap.pitch),
+                &format!("P: {:.1} deg", snap.roll),
+            );
+            kpi(
+                &mut cols[2..3],
+                0,
+                "SPEED",
+                &format!("{:.2} m/s", snap.speed),
+                &format!("Rot: {:.2}", snap.spin),
+            );
+            kpi(&mut cols[3..4], 0, "OBSTACLES", &snap.nearest, "LIDAR");
+        });
+        ui.add_space(8.0);
+        ui.label(
+            RichText::new("DEPLOYMENT SYSTEM")
+                .strong()
+                .color(secondary(ui)),
+        );
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                section_title(ui, "CAMERA PTZ");
+                ui.horizontal(|ui| {
+                    if ui.button("Center").clicked() {
+                        self.arm("Center", "camera_reset");
+                    }
+                    if ui.button("Demo").clicked() {
+                        self.arm("PTZ demo", "camera_set_pos");
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.add_space(28.0);
+                    if ui.button("Up").clicked() {
+                        self.arm("Tilt up", "camera_up");
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Left").clicked() {
+                        self.arm("Pan left", "camera_left");
+                    }
+                    if ui.button("Right").clicked() {
+                        self.arm("Pan right", "camera_right");
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.add_space(22.0);
+                    if ui.button("Down").clicked() {
+                        self.arm("Tilt down", "camera_down");
+                    }
+                });
+                ui.label(RichText::new("Pan: ID 1  |  Tilt: ID 2").color(secondary(ui)));
+            });
+            ui.vertical(|ui| {
+                section_title(ui, "GPIO");
+                ui.horizontal(|ui| {
+                    ui.label("Headlight LED");
+                    if ui
+                        .selectable_label(self.headlight, if self.headlight { "On" } else { "Off" })
+                        .clicked()
+                    {
+                        self.headlight = !self.headlight;
+                        self.note = "Headlight is GPIO 17. The tool bus has no gpio_set, so this switch is local.".to_string();
+                    }
+                });
+                section_title(ui, "TAPO AUDIO");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.speak);
+                    if ui.button("Speak").clicked() {
+                        self.arm_params("Speak", "say", Some(self.speak.clone()), None, None);
+                    }
+                    if ui.button("Listen").clicked() {
+                        self.note = "Tapo listen stays on the webapp microphone path.".to_string();
+                    }
+                });
+                section_title(ui, "KEYBOARD");
+                if ui
+                    .selectable_label(self.wasd, if self.wasd { "Active" } else { "Enable" })
+                    .clicked()
+                {
+                    self.wasd = !self.wasd;
+                }
+                ui.label(RichText::new("Use WASD keys to drive").color(secondary(ui)));
+                section_title(ui, "LIGHT CONTROL");
+                if ui.button("Stop").clicked() {
+                    self.arm("Lights off", "led_off");
+                }
+                if ui.button("Patrol car pattern").clicked() {
+                    self.arm("Patrol car", "patrol_car");
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("Danger red").clicked() {
+                        self.arm_params(
+                            "Danger red",
+                            "led",
+                            Some("255".into()),
+                            Some("0".into()),
+                            Some("0".into()),
+                        );
+                    }
+                    if ui.button("Safe green").clicked() {
+                        self.arm_params(
+                            "Safe green",
+                            "led",
+                            Some("0".into()),
+                            Some("255".into()),
+                            Some("0".into()),
+                        );
+                    }
+                });
+                section_title(ui, "VOICE & MEDIA HUB");
+                ui.label(RichText::new("Say Bumi Bumi to wake").color(secondary(ui)));
+            });
+        });
     }
 
     fn view_cards(&mut self, ui: &mut egui::Ui, heading: &str) {
@@ -656,7 +949,7 @@ impl YahboomApp {
                         if safe {
                             self.spawn(card.title, tool(operation));
                         } else {
-                            self.pending = Some((card.title, operation));
+                            self.arm(card.title, operation);
                         }
                     }
                 }
@@ -699,6 +992,130 @@ impl YahboomApp {
         ui.label(format!("Registry entries: {}", registry.devices.len()));
         ui.label(format!("Vault service: {}", crate::vault::SERVICE));
     }
+}
+
+struct LayerRow {
+    title: String,
+    ok: bool,
+}
+
+struct DashSnap {
+    connected: bool,
+    ip: String,
+    ros: String,
+    ssh: String,
+    video: String,
+    cmd_vel: String,
+    version: String,
+    layers: Vec<LayerRow>,
+    heading: f32,
+    pitch: f32,
+    roll: f32,
+    speed: f32,
+    spin: f32,
+    battery: String,
+    voltage: String,
+    nearest: String,
+}
+
+const STACK_TITLES: &[&str] = &[
+    "This PC to robot (TCP)",
+    "SSH control session",
+    "Pi: hostname, IP, Wi-Fi",
+    "Pi: Docker engine",
+    "Pi: ROS container (yahboom_ros2_final)",
+    "Inside container: ROS 2 graph",
+    "Inside container: rosbridge node",
+    "This PC to rosbridge (WebSocket)",
+    "Bridge: /cmd_vel advertised",
+    "Video pipeline (WebBridge)",
+];
+
+fn dash_snapshot(root: Option<&serde_json::Value>, connected: bool) -> DashSnap {
+    let body = root.and_then(|value| value.get("health"));
+    let link = body.and_then(|value| value.get("robot_connection"));
+    let text = |node: Option<&serde_json::Value>, key: &str, fallback: &str| -> String {
+        node.and_then(|value| value.get(key))
+            .and_then(|value| value.as_str())
+            .unwrap_or(fallback)
+            .to_string()
+    };
+    let ip = text(link, "ip", "");
+    let ip = if ip.is_empty() {
+        text(root, "robot_ip", "192.168.1.11")
+    } else {
+        ip
+    };
+    let cmd_vel = match link
+        .and_then(|value| value.get("cmd_vel_ready"))
+        .and_then(|value| value.as_bool())
+    {
+        Some(true) => "ready",
+        _ => "not ready",
+    };
+    let layers = body
+        .and_then(|value| value.get("stack"))
+        .and_then(|value| value.get("layers"))
+        .and_then(|value| value.as_array())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    let title = row.get("title")?.as_str()?;
+                    let ok = row
+                        .get("ok")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false);
+                    Some(LayerRow {
+                        title: title.to_string(),
+                        ok,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|rows| !rows.is_empty())
+        .unwrap_or_else(|| {
+            STACK_TITLES
+                .iter()
+                .map(|title| LayerRow {
+                    title: (*title).to_string(),
+                    ok: false,
+                })
+                .collect()
+        });
+    DashSnap {
+        connected,
+        ip,
+        ros: text(link, "ros", "disconnected"),
+        ssh: text(link, "ssh", "disconnected"),
+        video: text(link, "video", "inactive"),
+        cmd_vel: cmd_vel.to_string(),
+        version: text(body.and_then(|value| value.get("system")), "version", "?"),
+        layers,
+        heading: 0.0,
+        pitch: 0.0,
+        roll: 0.0,
+        speed: 0.0,
+        spin: 0.0,
+        battery: "--".to_string(),
+        voltage: "--".to_string(),
+        nearest: "Clear".to_string(),
+    }
+}
+
+fn section_title(ui: &mut egui::Ui, title: &str) {
+    ui.add_space(8.0);
+    ui.label(RichText::new(title).strong().color(secondary(ui)));
+}
+
+fn kpi(cols: &mut [egui::Ui], index: usize, kicker: &str, value: &str, sub: &str) {
+    let ui = &mut cols[index];
+    let mut frame = egui::Frame::group(ui.style());
+    frame.inner_margin = egui::Margin::same(10);
+    frame.show(ui, |ui| {
+        ui.label(RichText::new(kicker).size(13.0).color(secondary(ui)));
+        ui.label(RichText::new(value).strong());
+        ui.label(RichText::new(sub).color(secondary(ui)));
+    });
 }
 
 fn tool(operation: &str) -> Command {
