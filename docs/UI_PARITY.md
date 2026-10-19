@@ -1,12 +1,12 @@
 # UI parity
 
-**Status:** legacy frames and Rust stills are both on disk. Layout is not near-identical yet.
+**Status:** dashboard layout now follows the legacy board. Other pages are still the shared card list.
 
 Rust frames are `docs/parity/rust/*.png` (30 pages, 1280x860, dark theme, kittest wgpu). Same slugs as `docs/parity/legacy/` plus `crossconnect.png` and `raw.png`.
 
-What matches: page names, group order, indigo selection, dark ground, readable body text.
+Dashboard has the connection banner, stack-health chips, bring-up copy, Control Center line, server/robot/tools tiles, the offline stream panel, the four telemetry tiles, and the deployment column (PTZ, headlight, Tapo speak, keyboard, lights, voice). PTZ, speak, and lights confirm through the tool bus. Headlight and Tapo listen do not: GPIO and the microphone are separate HTTP paths.
 
-What does not: the legacy dashboard is a stack-health board with bring-up copy and shortcut buttons. The Rust dashboard is a short status column plus the PTZ, headlight, and speak controls. Card pages list the same preset titles. They are not the webapp's dense panels.
+Movement and the other card pages still use one vertical list. They are not the webapp's dense panels.
 
 ## Exceptions already known
 
